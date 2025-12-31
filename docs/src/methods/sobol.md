@@ -1,0 +1,5 @@
+# Sobol Method
+
+```@docs
+Sobol
+```

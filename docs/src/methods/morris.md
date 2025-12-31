@@ -1,0 +1,5 @@
+# Morris Method
+
+```@docs
+Morris
+```

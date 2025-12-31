@@ -1,0 +1,5 @@
+# EASI Method
+
+```@docs
+EASI
+```

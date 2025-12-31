@@ -1,0 +1,5 @@
+# eFAST Method
+
+```@docs
+eFAST
+```
