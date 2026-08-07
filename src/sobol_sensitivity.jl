@@ -82,14 +82,16 @@ end
 
 Sobol(; order = [0, 1], nboot = 1, conf_level = 0.95) = Sobol(order, nboot, conf_level)
 
-mutable struct SobolResult{T1, T2, T3, T4}
+mutable struct SobolResult{T1, T2, T3, T4, T5}
     S1::T1
     S1_Conf_Int::T2
     S2::T3
     S2_Conf_Int::T4
     ST::T1
     ST_Conf_Int::T2
-    n::Int ## added
+    VY::T5  # Total output variance V(Y) = denominator of S_Ti;
+            # near-zero => denominator inflation artifact (Task 3 probe)
+    n::Int
 end
 
 function fuse_designs(A, B; second_order = false)
@@ -402,12 +404,16 @@ function gsa_sobol_all_y_analysis(method, all_y::AbstractArray{T}, d, n, Ei_esti
         _Sᵢ = f_shape(Sᵢ)
         _Tᵢ = f_shape(Tᵢ)
     end
-    return SobolResult(_Sᵢ, 
+    # V(Y) = pooled sample variance of fA ∪ fB (2n points), the Sobol denominator.
+    # Near-zero at low overpotentials proves denominator inflation in S_Ti (Task 3).
+    VY = nboot > 1 ? mean(Varys) : Varys[1]
+    return SobolResult(_Sᵢ,
         nboot > 1 ? reshape(S1_CI, size_...) : nothing,
         2 in method.order ? Sᵢⱼ : nothing,
         nboot > 1 && 2 in method.order ? S2_CI : nothing,
         _Tᵢ,
         nboot > 1 ? reshape(ST_CI, size_...) : nothing,
+        VY,
         sum(keep))
 end
 
