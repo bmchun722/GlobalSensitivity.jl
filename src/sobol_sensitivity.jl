@@ -90,7 +90,7 @@ mutable struct SobolResult{T1, T2, T3, T4, T5}
     ST::T1
     ST_Conf_Int::T2
     VY::T5  # Total output variance V(Y) = denominator of S_Ti;
-            # near-zero => denominator inflation artifact (Task 3 probe)
+            # near-zero => denominator inflation artifact 
     n::Int
 end
 
@@ -109,60 +109,86 @@ function fuse_designs(A, B; second_order = false)
     end
     hcat(A, B, reduce(hcat, Aᵦ))
 end
-## edit for filtering 10/20/25 for filtering inifinte result
-function _compact_all_y_nonfinite!(all_y::AbstractVector, n::Int, d::Int, second_order::Bool=false)
-    # 1) build row mask
+function _compact_all_y_nonfinite!(all_y::AbstractArray, n::Int, d::Int, nboot::Int, second_order::Bool = false)
+    nblocks = second_order ? (2 + 2d) : (2 + d)
     keep = Base.fill(true, n)
 
-    if !second_order
-
-        @inbounds for k in 1:n
-            if !isfinite(all_y[k]) || !isfinite(all_y[n + k])
-                keep[k] = false
-            end
-        end
-        @inbounds for i in 0:d-1
-            base = 2n + i*n
-            for k in 1:n
-                keep[k] &= isfinite(all_y[base + k])
+    if all_y isa AbstractVector
+        @inbounds for b in 0:(nboot - 1)
+            b_offset = b * (nblocks * n)
+            for bl in 0:(nblocks - 1)
+                block_offset = b_offset + bl * n
+                for k in 1:n
+                    if !isfinite(all_y[block_offset + k])
+                        keep[k] = false
+                    end
+                end
             end
         end
     else
-        @inbounds for k in 1:n
-            if !isfinite(all_y[k]) || !isfinite(all_y[n+k])
-                keep[k] = false
-            end
-        end
-        @inbounds for i in 0:2d-1
-            base = 2n + i*n
-            for k in 1:n
-                keep[k] &= isfinite(all_y[base + k])
+        num_outputs = size(all_y, 1)
+        @inbounds for b in 0:(nboot - 1)
+            b_offset = b * (nblocks * n)
+            for bl in 0:(nblocks - 1)
+                block_offset = b_offset + bl * n
+                for k in 1:n
+                    col = block_offset + k
+                    for r in 1:num_outputs
+                        if !isfinite(all_y[r, col])
+                            keep[k] = false
+                            break
+                        end
+                    end
+                end
             end
         end
     end
 
     nk = count(keep)
     if nk == n
-        return all_y, n, keep               # nothing to drop
+        return all_y, n, keep
     elseif nk == 0
         error("All rows filtered; nothing left for Sobol analysis.")
     end
-    nblocks = second_order ? (2 + 2d) : (2 + d)
-    # 2) compact-copy once, blockwise: A, B, AB1..ABd
-    filtered = similar(all_y, eltype(all_y), nk * nblocks)
-    dest = 1
-    @inbounds for block in 0:(nblocks - 1)
-        base = block * n
-        for k in 1:n
-            if keep[k]
-                filtered[dest] = all_y[base + k]
-                dest += 1
+
+    if all_y isa AbstractVector
+        filtered = similar(all_y, eltype(all_y), nboot * nblocks * nk)
+        dest = 1
+        @inbounds for b in 0:(nboot - 1)
+            b_offset = b * (nblocks * n)
+            for bl in 0:(nblocks - 1)
+                block_offset = b_offset + bl * n
+                for k in 1:n
+                    if keep[k]
+                        filtered[dest] = all_y[block_offset + k]
+                        dest += 1
+                    end
+                end
             end
         end
+        return filtered, nk, keep
+    else
+        num_outputs = size(all_y, 1)
+        filtered = similar(all_y, eltype(all_y), num_outputs, nboot * nblocks * nk)
+        dest = 1
+        @inbounds for b in 0:(nboot - 1)
+            b_offset = b * (nblocks * n)
+            for bl in 0:(nblocks - 1)
+                block_offset = b_offset + bl * n
+                for k in 1:n
+                    if keep[k]
+                        col = block_offset + k
+                        for r in 1:num_outputs
+                            filtered[r, dest] = all_y[r, col]
+                        end
+                        dest += 1
+                    end
+                end
+            end
+        end
+        return filtered, nk, keep
     end
-    return filtered, nk, keep
 end
-
 
 function gsa(f, method::Sobol, A::AbstractMatrix{TA}, B::AbstractMatrix;
         batch = false, Ei_estimator = :Jansen1999,
@@ -191,20 +217,15 @@ function gsa(f, method::Sobol, A::AbstractMatrix{TA}, B::AbstractMatrix;
         all_points = _all_points
     end
 
-    has_second_order = (2 in method.order) ## added
+    has_second_order = (2 in method.order)
 
     if batch
-         all_y = f(all_points)                     # expects scalar per column
+        all_y = f(all_points)
         multioutput = all_y isa AbstractMatrix
-        @assert !multioutput "Row-drop path assumes scalar outputs in batch mode." ## added
-        @assert !(2 in method.order) "This row-drop patch handles first-order Sobol (order=[0,1])." ## added
-
-        # ---- NEW: drop rows with any non-finite A/B/ABᵢ, update n ----
-        all_y, n, keep = _compact_all_y_nonfinite!(all_y, n, d, has_second_order)
-        # ---------------------------------------------------------------
-
         y_size = nothing
-        gsa_sobol_all_y_analysis(method, all_y, d, n, Ei_estimator, y_size, keep, Val(false))
+
+        all_y, n, keep = _compact_all_y_nonfinite!(all_y, n, d, nboot, has_second_order)
+        gsa_sobol_all_y_analysis(method, all_y, d, n, Ei_estimator, y_size, keep, Val(multioutput))
 
     else
         _y = [f(all_points[:, i]) for i in 1:size(all_points, 2)]
@@ -216,13 +237,13 @@ function gsa(f, method::Sobol, A::AbstractMatrix{TA}, B::AbstractMatrix;
             y_size = nothing
         end
         if multioutput
-            gsa_sobol_all_y_analysis(method, reduce(hcat, _y), d, n, Ei_estimator, y_size,
-                Val(true))
+            all_y_mat = reduce(hcat, _y)
+            all_y_mat, n, keep = _compact_all_y_nonfinite!(all_y_mat, n, d, nboot, has_second_order)
+            gsa_sobol_all_y_analysis(method, all_y_mat, d, n, Ei_estimator, y_size, keep, Val(true))
         else
             all_y_vec = _y
-            all_y_vec, n, _ =
-                _compact_all_y_nonfinite!(all_y_vec, n, d; second_order = has_second_order)
-            gsa_sobol_all_y_analysis(method, all_y_vec, d, n, Ei_estimator, y_size, Val(false))
+            all_y_vec, n, keep = _compact_all_y_nonfinite!(all_y_vec, n, d, nboot, has_second_order)
+            gsa_sobol_all_y_analysis(method, all_y_vec, d, n, Ei_estimator, y_size, keep, Val(false))
         end
     end
 end
@@ -418,11 +439,13 @@ function gsa_sobol_all_y_analysis(method, all_y::AbstractArray{T}, d, n, Ei_esti
 end
 
 function gsa(f, method::Sobol, p_range::AbstractVector; samples, kwargs...)
-    AB = QuasiMonteCarlo.generate_design_matrices(samples, [i[1] for i in p_range],
-        [i[2] for i in p_range],
+    AB = QuasiMonteCarlo.generate_design_matrices(
+        samples, Float64[i[1] for i in p_range],
+        Float64[i[2] for i in p_range],
         QuasiMonteCarlo.SobolSample(),
-        2 * method.nboot)
+        2 * method.nboot
+    )
     A = reduce(hcat, @view(AB[1:(method.nboot)]))
     B = reduce(hcat, @view(AB[(method.nboot + 1):end]))
-    gsa(f, method, A, B; kwargs...)
+    return gsa(f, method, A, B; kwargs...)
 end
