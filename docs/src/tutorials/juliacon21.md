@@ -5,7 +5,7 @@ We showcase how to use multiple GSA methods, analyze their results and leverage 
 perform Global Sensitivity analysis at scale.
 
 ```@example lv
-using GlobalSensitivity, QuasiMonteCarlo, OrdinaryDiffEq, Statistics, CairoMakie
+using GlobalSensitivity, QuasiMonteCarlo, OrdinaryDiffEq, Statistics, CairoMakie, SciMLBase
 
 function f(du, u, p, t)
     du[1] = p[1] * u[1] - p[2] * u[1] * u[2] #prey

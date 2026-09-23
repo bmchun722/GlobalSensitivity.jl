@@ -3,7 +3,7 @@
 Let's run GSA on the [Lotka-Volterra model](https://en.wikipedia.org/wiki/Lotka%E2%80%93Volterra_equations) to study the sensitivity of the maximum of predator population and the average prey population.
 
 ```@example ode
-using GlobalSensitivity, Statistics, OrdinaryDiffEq, QuasiMonteCarlo, Plots
+using GlobalSensitivity, Statistics, OrdinaryDiffEq, QuasiMonteCarlo, Plots, SciMLBase
 ```
 
 First, let's define our model:
