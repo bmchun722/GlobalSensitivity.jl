@@ -17,7 +17,7 @@ trained using the [SciML ecosystem](https://sciml.ai/).
 As the first step let's generate the dataset.
 
 ```@example shapley
-using GlobalSensitivity, OrdinaryDiffEq, Flux, SciMLSensitivity, LinearAlgebra
+using GlobalSensitivity, OrdinaryDiffEq, Flux, SciMLSensitivity, LinearAlgebra, SciMLBase
 using Optimization, OptimizationOptimisers, Distributions, Copulas, CairoMakie
 
 u0 = [2.0f0; 0.0f0]
